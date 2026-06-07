@@ -100,6 +100,7 @@ struct AskAFM: AsyncParsableCommand {
         let instructionTokens: Int
         let toolTokens: Int
         let contextSize: Int
+        let exact: Bool
 
         var totalTokens: Int {
             promptTokens + instructionTokens + toolTokens
@@ -382,26 +383,87 @@ struct AskAFM: AsyncParsableCommand {
     }
 
     static func contextWindowMessage(usage: ContextUsage) -> String {
-        "Context window exceeded: \(usage.totalTokens)/\(usage.contextSize) tokens (prompt \(usage.promptTokens), instructions \(usage.instructionTokens), tools \(usage.toolTokens))."
+        let countType = usage.exact ? "tokens" : "estimated tokens"
+        return
+            "Context window exceeded: \(usage.totalTokens)/\(usage.contextSize) \(countType) (prompt \(usage.promptTokens), instructions \(usage.instructionTokens), tools \(usage.toolTokens))."
     }
 
-    @available(iOS 26.4, macOS 26.4, visionOS 26.4, *)
     static func contextUsage(
         model: SystemLanguageModel,
         prompt: String,
-        instructions: Instructions,
+        instructions: String,
         tools: [any Tool]
     ) async throws -> ContextUsage {
-        async let promptTokens = model.tokenCount(for: prompt)
-        async let instructionTokens = model.tokenCount(for: instructions)
-        async let toolTokens = model.tokenCount(for: tools)
+        #if ASKAFM_FOUNDATION_MODELS_26_4
+            if #available(iOS 26.4, macOS 26.4, visionOS 26.4, *) {
+                return try await exactContextUsage(
+                    model: model,
+                    prompt: prompt,
+                    instructions: Instructions(instructions),
+                    tools: tools
+                )
+            }
+        #endif
 
-        return try await ContextUsage(
-            promptTokens: promptTokens,
-            instructionTokens: instructionTokens,
-            toolTokens: toolTokens,
-            contextSize: model.contextSize
+        return fallbackContextUsage(
+            prompt: prompt,
+            instructions: instructions,
+            tools: tools
         )
+    }
+
+    #if ASKAFM_FOUNDATION_MODELS_26_4
+        @available(iOS 26.4, macOS 26.4, visionOS 26.4, *)
+        private static func exactContextUsage(
+            model: SystemLanguageModel,
+            prompt: String,
+            instructions: Instructions,
+            tools: [any Tool]
+        ) async throws -> ContextUsage {
+            async let promptTokens = model.tokenCount(for: prompt)
+            async let instructionTokens = model.tokenCount(for: instructions)
+            async let toolTokens = model.tokenCount(for: tools)
+
+            return try await ContextUsage(
+                promptTokens: promptTokens,
+                instructionTokens: instructionTokens,
+                toolTokens: toolTokens,
+                contextSize: model.contextSize,
+                exact: true
+            )
+        }
+    #endif
+
+    static func fallbackContextUsage(
+        prompt: String,
+        instructions: String,
+        tools: [any Tool],
+        contextSize: Int = 4096
+    ) -> ContextUsage {
+        ContextUsage(
+            promptTokens: estimatedTokenCount(prompt),
+            instructionTokens: estimatedTokenCount(instructions),
+            toolTokens: estimatedToolTokenCount(tools),
+            contextSize: contextSize,
+            exact: false
+        )
+    }
+
+    private static func estimatedToolTokenCount(_ tools: [any Tool]) -> Int {
+        estimatedTokenCount(
+            tools
+                .map { "\($0.name) \($0.description)" }
+                .joined(separator: "\n")
+        )
+    }
+
+    private static func estimatedTokenCount(_ text: String) -> Int {
+        let byteCount = text.utf8.count
+        guard byteCount > 0 else {
+            return 0
+        }
+
+        return max(1, Int(ceil(Double(byteCount) / 4.0)))
     }
 
     /// Converts AskAFM's persisted model settings into FoundationModels generation options.
@@ -475,7 +537,8 @@ struct AskAFM: AsyncParsableCommand {
             )
         }
 
-        guard exitsWithoutPrompt || promptFile != nil || !Self.userPrompt(from: promptParts).isEmpty else {
+        guard exitsWithoutPrompt || promptFile != nil || !Self.userPrompt(from: promptParts).isEmpty
+        else {
             Self.logger.error("Validation failed: missing prompt")
             throw ValidationError(
                 "Missing prompt or --promptfile unless --writedefaultconfig or --list-supported-languages is used."
@@ -534,7 +597,8 @@ struct AskAFM: AsyncParsableCommand {
         }
 
         let availability = model.availability
-        Self.modelLogger.debug("System language model availability: \(String(describing: availability))")
+        Self.modelLogger.debug(
+            "System language model availability: \(String(describing: availability))")
         if let unavailabilityMessage = Self.unavailableReason(
             for: availability
         ) {
@@ -600,22 +664,20 @@ struct AskAFM: AsyncParsableCommand {
             tabularDataset: tabularDataset
         )
 
-        if #available(macOS 26.4, *) {
-            let usage = try await Self.contextUsage(
-                model: model,
-                prompt: prompt,
-                instructions: instructionObject,
-                tools: tools
-            )
-            Self.modelLogger.info(
-                "Context usage: total=\(usage.totalTokens), prompt=\(usage.promptTokens), instructions=\(usage.instructionTokens), tools=\(usage.toolTokens), limit=\(usage.contextSize), remaining=\(usage.remainingTokens)"
-            )
-            if usage.exceedsContextSize {
-                let message = Self.contextWindowMessage(usage: usage)
-                Self.writeError(message, to: stderr)
-                Self.modelLogger.error("\(message)")
-                throw ExitCode.failure
-            }
+        let usage = try await Self.contextUsage(
+            model: model,
+            prompt: prompt,
+            instructions: instructions,
+            tools: tools
+        )
+        Self.modelLogger.info(
+            "Context usage: exact=\(usage.exact), total=\(usage.totalTokens), prompt=\(usage.promptTokens), instructions=\(usage.instructionTokens), tools=\(usage.toolTokens), limit=\(usage.contextSize), remaining=\(usage.remainingTokens)"
+        )
+        if usage.exceedsContextSize {
+            let message = Self.contextWindowMessage(usage: usage)
+            Self.writeError(message, to: stderr)
+            Self.modelLogger.error("\(message)")
+            throw ExitCode.failure
         }
 
         let session = LanguageModelSession(
@@ -647,7 +709,8 @@ struct AskAFM: AsyncParsableCommand {
                 "Stream rendered \(renderedContent.utf8.count) bytes so far"
             )
         }
-        Self.modelLogger.info("Model response stream completed with \(renderedContent.utf8.count) output bytes")
+        Self.modelLogger.info(
+            "Model response stream completed with \(renderedContent.utf8.count) output bytes")
 
         if configuration.saveSession {
             let sessionURL = try configurationStore.writeSession(

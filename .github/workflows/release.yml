@@ -47,8 +47,27 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Show runner info
+        run: |
+          sw_vers
+          uname -a
+          xcodebuild -version
+          swift --version
+          xcrun --show-sdk-path
+
+      - name: Detect Foundation Models token counting API
+        run: |
+          SDK_PATH="$(xcrun --show-sdk-path)"
+          if grep -R "tokenCount(for prompt" \
+            "$SDK_PATH/System/Library/Frameworks/FoundationModels.framework" \
+            >/dev/null 2>&1; then
+            echo "SWIFT_BUILD_FLAGS=-Xswiftc -DASKAFM_FOUNDATION_MODELS_26_4" >> "$GITHUB_ENV"
+          else
+            echo "SWIFT_BUILD_FLAGS=" >> "$GITHUB_ENV"
+          fi
+
       - name: Build arm64
-        run: swift build -c release --arch arm64
+        run: swift build -c release --arch arm64 $SWIFT_BUILD_FLAGS
 
       - name: Save arm64 binary
         run: cp ".build/arm64-apple-macosx/release/$BINARY_NAME" "$BINARY_NAME"

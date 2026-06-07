@@ -134,7 +134,12 @@ import Testing
         promptTokens: 100,
         instructionTokens: 20,
         toolTokens: 30,
+<<<<<<< HEAD
         contextSize: 256
+=======
+        contextSize: 256,
+        exact: true
+>>>>>>> 355dfdb (Handle os versions)
     )
 
     #expect(usage.totalTokens == 150)
@@ -147,7 +152,12 @@ import Testing
         promptTokens: 240,
         instructionTokens: 20,
         toolTokens: 10,
+<<<<<<< HEAD
         contextSize: 256
+=======
+        contextSize: 256,
+        exact: true
+>>>>>>> 355dfdb (Handle os versions)
     )
 
     #expect(usage.totalTokens == 270)
@@ -160,7 +170,12 @@ import Testing
         promptTokens: 240,
         instructionTokens: 20,
         toolTokens: 10,
+<<<<<<< HEAD
         contextSize: 256
+=======
+        contextSize: 256,
+        exact: true
+>>>>>>> 355dfdb (Handle os versions)
     )
 
     let message = AskAFM.contextWindowMessage(usage: usage)
@@ -171,6 +186,24 @@ import Testing
     #expect(message.contains("tools 10"))
 }
 
+<<<<<<< HEAD
+=======
+@Test func fallbackContextUsageEstimatesTokensWithoutExactSDKSupport() async throws {
+    let usage = AskAFM.fallbackContextUsage(
+        prompt: "abcd efgh",
+        instructions: "short",
+        tools: [],
+        contextSize: 4096
+    )
+
+    #expect(usage.contextSize == 4096)
+    #expect(usage.exact == false)
+    #expect(usage.promptTokens > 0)
+    #expect(usage.instructionTokens > 0)
+    #expect(usage.toolTokens == 0)
+}
+
+>>>>>>> 355dfdb (Handle os versions)
 @Test func builtinToolsReturnsIntegratedReadOnlyTools() async throws {
     let tools = AskAFM.builtinTools()
     let toolNames = tools.map(\.name)
