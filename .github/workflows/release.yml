@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  BINARY_NAME: askafm
+  ARCHIVE_NAME: askafm-macos.zip
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Import Code Signing Certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 \
+            -k build.keychain \
+            -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign
+
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k actions \
+            build.keychain
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build arm64
+        run: swift build -c release --arch arm64
+
+      - name: Save arm64 binary
+        run: cp ".build/arm64-apple-macosx/release/$BINARY_NAME" "$BINARY_NAME"
+
+      - name: Verify arm64 Binary
+        run: lipo -info "$BINARY_NAME"
+
+      - name: Sign Binary
+        run: |
+          codesign --force \
+            --timestamp \
+            --options runtime \
+            --sign "Developer ID Application: Redseven AB (4MW6K9N3NR)" \
+            "$BINARY_NAME"
+
+      - name: Verify Signature
+        run: codesign -dv --verbose=4 "$BINARY_NAME"
+
+      - name: Prepare Binary
+        run: |
+          mkdir -p dist
+          cp "$BINARY_NAME" dist/
+
+      - name: Zip Binary
+        run: |
+          cd dist
+          zip -r "$ARCHIVE_NAME" "$BINARY_NAME"
+
+      - name: Notarize Binary
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool submit "dist/$ARCHIVE_NAME" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/${{ env.ARCHIVE_NAME }}

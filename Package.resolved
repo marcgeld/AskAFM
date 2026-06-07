@@ -1,0 +1,24 @@
+{
+  "originHash" : "2e2fd0ca4da29e56b1d6f9804853bc808d8efa697c9d6432313c3b6a0167c74a",
+  "pins" : [
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser.git",
+      "state" : {
+        "revision" : "5e0406d68a4937f21ae5f670b8f89dad1d156a1c",
+        "version" : "1.8.0"
+      }
+    },
+    {
+      "identity" : "tomlkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/LebJe/TOMLKit.git",
+      "state" : {
+        "revision" : "ec6198d37d495efc6acd4dffbd262cdca7ff9b3f",
+        "version" : "0.6.0"
+      }
+    }
+  ],
+  "version" : 3
+}
