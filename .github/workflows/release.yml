@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -55,17 +56,6 @@ jobs:
           swift --version
           xcrun --show-sdk-path
 
-      - name: Detect Foundation Models token counting API
-        run: |
-          SDK_PATH="$(xcrun --show-sdk-path)"
-          if grep -R "tokenCount(for prompt" \
-            "$SDK_PATH/System/Library/Frameworks/FoundationModels.framework" \
-            >/dev/null 2>&1; then
-            echo "SWIFT_BUILD_FLAGS=-Xswiftc -DASKAFM_FOUNDATION_MODELS_26_4" >> "$GITHUB_ENV"
-          else
-            echo "SWIFT_BUILD_FLAGS=" >> "$GITHUB_ENV"
-          fi
-
       - name: Build arm64
         run: swift build -c release --arch arm64 $SWIFT_BUILD_FLAGS
 
@@ -97,6 +87,7 @@ jobs:
           zip -r "$ARCHIVE_NAME" "$BINARY_NAME"
 
       - name: Notarize Binary
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -109,6 +100,7 @@ jobs:
             --wait
 
       - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
           files: dist/${{ env.ARCHIVE_NAME }}
